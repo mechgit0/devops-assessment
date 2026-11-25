@@ -27,8 +27,8 @@ docker-compose.yml, .env.example  Local run + config
 cp .env.example .env            # config lives here, not in code
 docker compose up --build -d    # build image and start the app
 docker compose ps               # STATUS should become "healthy" in ~10s
-curl http://localhost:8080/          # -> Hello, DevOps
-curl http://localhost:8080/health    # -> {"status":"ok"}
+curl http://localhost:8000/          # -> Hello, DevOps
+curl http://localhost:8000/health    # -> {"status":"ok"}
 docker compose down             # stop
 ```
 
@@ -39,7 +39,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-**Port:** the app listens on `8080` inside the container (`EXPOSE 8080`).
+**Port:** the app listens on `8000` inside the container (`EXPOSE 8000`).
 Change the host port with `APP_PORT` in `.env`.
 
 ## Health check
@@ -111,7 +111,7 @@ The Docker Hub repository `devops-assessment` is public, so the server does not 
 docker compose ps                  # is it Up / healthy / Exited?
 docker compose logs app            # gunicorn and app output (stdout/stderr)
 docker inspect hello-devops --format '{{.State.ExitCode}} {{.State.Health.Status}}'
-lsof -i :8080                      # is the host port already in use?
+lsof -i :8000                      # is the host port already in use?
 ```
 
 Common causes:
@@ -119,7 +119,7 @@ Common causes:
 - `port is already allocated`: change `APP_PORT` in `.env`
 - Exited right away: read `docker compose logs app` (import error, bad env value)
 - Stays `unhealthy`: the app is running but `/health` is failing or slow; check logs, then
-  `docker exec hello-devops python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8080/health').read())"`
+  `docker exec hello-devops python -c "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/health').read())"`
 
 Logs go to stdout/stderr (including gunicorn access logs), so the platform collects them
 (`docker logs`, CloudWatch, etc.). No log files are written inside the container.
