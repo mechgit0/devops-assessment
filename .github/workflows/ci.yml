@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # 1. Secret scan: fails if a key/token is found in the repo or its git history.
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history,
+      - name: Run Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4 \
+            detect --source /repo --redact --verbose
+
+  # 2. Unit tests
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -v
+
+  # 3. Build image, smoke test it, scan it, and push it (main branch only)
+  docker:
+    runs-on: ubuntu-latest
+    needs: [gitleaks, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t devops-assessment:ci .
+
+      - name: Smoke test (container must become healthy)
+        run: |
+          docker run -d --name app -p 8080:8080 devops-assessment:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8080/health; then
+              echo; echo "App is healthy"; exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not become healthy"; docker logs app; exit 1
+
+      - name: Trivy scan (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: devops-assessment:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # Push is optional. Without these secrets, CI still builds and tests.
+      - name: Check Docker Hub config
+        id: hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker Hub secrets not set. Skipping image push."
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.hub.outputs.enabled == 'true'
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Push image (tags - short commit SHA and latest)
+        if: steps.hub.outputs.enabled == 'true'
+        run: |
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/devops-assessment"
+          docker tag devops-assessment:ci "$IMAGE:$SHORT_SHA"
+          docker tag devops-assessment:ci "$IMAGE:latest"
+          docker push "$IMAGE:$SHORT_SHA"
+          docker push "$IMAGE:latest"

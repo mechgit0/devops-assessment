@@ -1,0 +1,108 @@
+name: CD
+
+# Runs after CI succeeds on main.
+# (or roll back to) a specific image tag.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (empty = latest)"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      # If the server secrets are not set, skip cleanly instead of failing.
+      - name: Check deploy config
+        id: cfg
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -n "$SSH_HOST" ] && [ -n "$SSH_USER" ] && [ -n "$SSH_PRIVATE_KEY" ] && [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy secrets not set. Skipping deployment."
+          fi
+
+      - name: Work out image tag
+        if: steps.cfg.outputs.enabled == 'true'
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then TAG="$INPUT_TAG"
+          elif [ -n "$RUN_SHA" ]; then TAG=$(echo "$RUN_SHA" | cut -c1-7)
+          else TAG=latest; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Deploying tag: $TAG"
+
+      - name: Set up SSH
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Copy compose file to server
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$SSH_USER@$SSH_HOST" "mkdir -p ~/devops-assessment"
+          scp -i ~/.ssh/id_deploy docker-compose.yml "$SSH_USER@$SSH_HOST:~/devops-assessment/docker-compose.yml"
+
+      - name: Deploy and wait for healthy
+        if: steps.cfg.outputs.enabled == 'true'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          ssh -i ~/.ssh/id_deploy "$SSH_USER@$SSH_HOST" \
+            "DOCKERHUB_USERNAME='$DH_USER' IMAGE_TAG='$TAG' bash -s" <<'REMOTE'
+          set -e
+          cd ~/devops-assessment
+          [ -f .env ] || { echo "Missing ~/devops-assessment/.env on server"; exit 1; }
+          docker compose pull
+          docker compose up -d --no-build
+          for i in $(seq 1 20); do
+            STATUS=$(docker inspect --format '{{.State.Health.Status}}' hello-devops 2>/dev/null || echo none)
+            echo "health: $STATUS"
+            [ "$STATUS" = "healthy" ] && exit 0
+            sleep 3
+          done
+          echo "Deploy FAILED. Last logs:"
+          docker compose logs --tail 50 app
+          exit 1
+          REMOTE

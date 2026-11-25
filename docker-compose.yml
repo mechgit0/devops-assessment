@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    # DOCKERHUB_USERNAME and IMAGE_TAG are set by the CD job on the server.
+    # Locally they default, so `docker compose up --build` just works.
+    image: ${DOCKERHUB_USERNAME:-local}/devops-assessment:${IMAGE_TAG:-dev}
+    container_name: devops-assessment
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file: .env
+    restart: unless-stopped
