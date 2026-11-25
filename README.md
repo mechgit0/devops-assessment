@@ -1,4 +1,4 @@
-# Hello, DevOps
+# DevOps
 
 A tiny Flask web service, packaged as a container, with automated checks (CI),
 image publishing to Docker Hub, and an optional automated deploy (CD) over SSH.
@@ -83,8 +83,8 @@ If the deploy secrets are not set, the job skips with a notice instead of failin
 
 ```bash
 # on the server: Docker + Compose installed, then
-mkdir -p ~/hello-devops
-cp .env.example ~/hello-devops/.env   # edit values on the server
+mkdir -p ~/devops-assessment
+cp .env.example ~/devops-assessment/.env   # edit values on the server
 ```
 
 ### GitHub secrets needed (Settings > Secrets and variables > Actions)
@@ -97,7 +97,7 @@ cp .env.example ~/hello-devops/.env   # edit values on the server
 | `SSH_USER` | SSH user on the server (must be able to run docker) |
 | `SSH_PRIVATE_KEY` | Private key of a dedicated deploy key pair |
 
-The Docker Hub repository `hello-devops` is public, so the server does not need to log in to pull.
+The Docker Hub repository `devops-assessment` is public, so the server does not need to log in to pull.
 
 ## Configuration and secrets
 
