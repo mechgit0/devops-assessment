@@ -44,9 +44,9 @@ jobs:
 
       - name: Smoke test (container must become healthy)
         run: |
-          docker run -d --name app -p 8080:8080 devops-assessment:ci
+          docker run -d --name app -p 8000:8000 devops-assessment:ci
           for i in $(seq 1 15); do
-            if curl -fsS http://localhost:8080/health; then
+            if curl -fsS http://localhost:8000/health; then
               echo; echo "App is healthy"; exit 0
             fi
             sleep 2
@@ -54,7 +54,7 @@ jobs:
           echo "App did not become healthy"; docker logs app; exit 1
 
       - name: Trivy scan (fail on fixable HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: devops-assessment:ci
           severity: HIGH,CRITICAL
