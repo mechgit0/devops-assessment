@@ -84,7 +84,7 @@ If the deploy secrets are not set, the job skips with a notice instead of failin
 ```bash
 # on the server: Docker + Compose installed, then
 mkdir -p ~/devops-assessment
-cp .env.example ~/devops-assessment/.env   # edit values on the server
+cp .env.example ~/devops-assessment/.env   # edit the values on the server
 ```
 
 ### GitHub secrets needed (Settings > Secrets and variables > Actions)
