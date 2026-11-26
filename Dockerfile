@@ -7,6 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Patch OS-level vulnerabilities flagged by Trivy.
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy requirements | cached when only code changes.
 COPY requirements.txt .
 RUN pip install --root-user-action=ignore -r requirements.txt
